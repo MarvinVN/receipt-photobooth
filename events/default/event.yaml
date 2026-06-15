@@ -1,0 +1,2 @@
+# Per-event settings. Add any custom fields here and use them as {field} in text.
+event: "PHOTOBOOTH"

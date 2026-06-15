@@ -1,0 +1,27 @@
+# Receipt layout for the "default" event.
+# Re-read on every print, so edits here show up on the next photo.
+# Block types: image | text | photo | qr | rule | spacer
+# Variables you can use in text/qr: {event} {date} {time} {datetime} {quip}
+#   plus any custom field you add to event.yaml
+
+width: 576            # printer dots across (use 512 if the photo doesn't fill the paper)
+
+photo:
+  crop: square        # square | portrait | original
+  gamma: 0.7          # <1 lifts shadows (more detail in darks)
+  contrast: 1.1
+
+blocks:
+  - {type: spacer, height: 20}
+  - {type: image,  src: good-company-logo.png, scale: 0.75}
+  - {type: spacer, height: 10}
+  - {type: text,   content: "{event}",        size: 44, bold: true}
+  - {type: text,   content: "{date}   {time}", size: 24}
+  - {type: rule,   style: dashed}
+  - {type: photo}
+  - {type: rule,   style: dashed}
+  - {type: text,   content: "{quip}",         size: 30, italic: true}
+  - {type: spacer, height: 12}
+  - {type: qr,     data: "https://instagram.com/yourbooth", scale: 6}
+  - {type: text,   content: "scan to follow", size: 20}
+  - {type: spacer, height: 24}

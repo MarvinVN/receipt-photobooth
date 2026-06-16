@@ -15,7 +15,7 @@ from escpos.printer import File
 import renderer
 
 PRINTER_DEVICE  = "/dev/usb/lp0"
-FEED_BEFORE_CUT = 5                       # blank lines so the footer clears the cutter
+FEED_BEFORE_CUT = 3                       # blank lines so the footer clears the cutter
 EVENTS_DIR      = Path.home() / "photobooth" / "events"
 
 

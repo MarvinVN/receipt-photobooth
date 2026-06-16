@@ -4,7 +4,9 @@ Each block type maps to a function returning a full-printer-width image;
 the blocks are stacked top-to-bottom. The template is read fresh by the
 caller on every print, so edits take effect on the next receipt.
 """
+import functools
 import random
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -73,8 +75,39 @@ def subst(text, ctx) -> str:
 # --------------------------------------------------------------------------
 # Block renderers (each returns a width-wide 1-bit image)
 # --------------------------------------------------------------------------
-def _font(size, bold=False, italic=False):
-    return ImageFont.truetype(str(FONT_DIR / FONT_FILES[(bool(bold), bool(italic))]), int(size))
+FONTS_DIR = ASSETS / "fonts"        # drop custom .ttf/.otf files here
+
+
+@functools.lru_cache(maxsize=128)
+def _resolve_font(family, bold, italic):
+    """Resolve a font name to a .ttf/.otf path.
+
+    `family` can be a custom file in assets/fonts/ (by name, with or without
+    extension) or any font family installed on the Pi (resolved via fontconfig,
+    including bold/italic styles). Falls back to bundled DejaVu Sans.
+    """
+    if family:
+        for cand in (FONTS_DIR / family, FONTS_DIR / f"{family}.ttf", FONTS_DIR / f"{family}.otf"):
+            if cand.exists():
+                return str(cand)
+    pattern = family or "DejaVu Sans"
+    if bold:
+        pattern += ":bold"
+    if italic:
+        pattern += ":italic"
+    try:
+        res = subprocess.run(["fc-match", "-f", "%{file}", pattern],
+                             capture_output=True, text=True, timeout=3)
+        path = res.stdout.strip()
+        if path and Path(path).exists():
+            return path
+    except Exception:
+        pass
+    return str(FONT_DIR / FONT_FILES[(bool(bold), bool(italic))])
+
+
+def _font(size, bold=False, italic=False, family=None):
+    return ImageFont.truetype(_resolve_font(family, bool(bold), bool(italic)), int(size))
 
 
 def _wrap(text, font, max_w):
@@ -93,8 +126,8 @@ def _wrap(text, font, max_w):
 
 
 def render_text(content, width, size=28, bold=False, italic=False,
-                align="center", pad=8, line_spacing=6):
-    font = _font(size, bold, italic)
+                align="center", pad=8, line_spacing=6, family=None):
+    font = _font(size, bold, italic, family=family)
     max_w = width - 2 * pad
     lines = []
     for para in str(content).split("\n"):
@@ -240,7 +273,8 @@ def compose(event_dir, photo_rgb=None):
         elif t == "text":
             out.append(render_text(subst(blk.get("content", ""), ctx), width,
                                     size=blk.get("size", 28), bold=blk.get("bold", False),
-                                    italic=blk.get("italic", False), align=blk.get("align", "center")))
+                                    italic=blk.get("italic", False), align=blk.get("align", "center"),
+                                    family=blk.get("font")))
         elif t == "image":
             out.append(render_image(blk.get("src", ""), event_dir, width,
                                     scale=blk.get("scale", 1.0), align=blk.get("align", "center"),

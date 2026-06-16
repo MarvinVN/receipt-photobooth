@@ -1,0 +1,11 @@
+[Unit]
+Description=Photobooth wifi hotspot fallback
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/photobooth/photobooth/systemd/autohotspot.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -39,9 +39,12 @@ def capture_photo() -> Image.Image:
 
 def print_image(img: Image.Image):
     p = File(PRINTER_DEVICE)
-    p.image(img)
-    p.ln(FEED_BEFORE_CUT)
-    p.cut()
+    try:
+        p.image(img)
+        p.ln(FEED_BEFORE_CUT)
+        p.cut()
+    finally:
+        p.close()          # release /dev/usb/lp0 so the next print can open it
 
 
 def run(preview=False, no_print=False):

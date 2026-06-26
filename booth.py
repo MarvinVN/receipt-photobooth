@@ -36,7 +36,8 @@ cam.set_controls({"AfMode": controls.AfModeEnum.Auto})   # autofocus on; we trig
 
 
 def capture() -> Image.Image:
-    return Image.fromarray(cam.capture_array()).convert("RGB")
+    # camera is mounted upside-down in the enclosure, so rotate the frame 180
+    return Image.fromarray(cam.capture_array()).convert("RGB").rotate(180)
 
 
 def on_press():

@@ -37,7 +37,8 @@ def capture_photo() -> Image.Image:
     cam.autofocus_cycle()                  # focus on the subject; blocks until locked
     arr = cam.capture_array()
     cam.stop()
-    return Image.fromarray(arr).convert("RGB")
+    # camera is mounted upside-down in the enclosure, so rotate the frame 180
+    return Image.fromarray(arr).convert("RGB").rotate(180)
 
 
 def print_image(img: Image.Image):

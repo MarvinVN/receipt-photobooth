@@ -14,6 +14,7 @@ from signal import pause
 from PIL import Image
 from gpiozero import Button
 from picamera2 import Picamera2
+from libcamera import controls
 
 import photobooth      # active_event_dir(), print_image()
 import renderer
@@ -31,6 +32,7 @@ cam = Picamera2()
 cam.configure(cam.create_still_configuration(main={"size": (1920, 1440)}))
 cam.start()
 time.sleep(WARMUP_S)
+cam.set_controls({"AfMode": controls.AfModeEnum.Auto})   # autofocus on; we trigger a lock per shot
 
 
 def capture() -> Image.Image:
@@ -53,7 +55,10 @@ def on_press():
         print(f"[{event_dir.name}] get ready...")
         for i in range(COUNTDOWN_S, 0, -1):
             print(i)                       # hook an LED flash / buzzer beep here later
-            time.sleep(1)
+            if i == 1:
+                cam.autofocus_cycle()      # ~1s focus lock, consumes the final beat
+            else:
+                time.sleep(1)
         print("capturing...")
         photo = capture()
         photo.save("/tmp/last_capture.jpg")          # editor preview uses this

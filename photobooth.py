@@ -28,10 +28,13 @@ def active_event_dir() -> Path:
 
 def capture_photo() -> Image.Image:
     from picamera2 import Picamera2
+    from libcamera import controls
     cam = Picamera2()
     cam.configure(cam.create_still_configuration(main={"size": (1920, 1440)}))
     cam.start()
     time.sleep(2)                          # let auto-exposure settle
+    cam.set_controls({"AfMode": controls.AfModeEnum.Auto})
+    cam.autofocus_cycle()                  # focus on the subject; blocks until locked
     arr = cam.capture_array()
     cam.stop()
     return Image.fromarray(arr).convert("RGB")

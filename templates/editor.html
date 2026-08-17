@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Photobooth Editor</title>
+<style>
+  :root { --bg:#11131a; --card:#1b1e29; --ink:#e8eaf0; --mut:#9aa0b4;
+          --line:#2c3142; --accent:#5b8cff; --good:#34c98a; --bad:#ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--ink); }
+  header { position:sticky; top:0; z-index:5; background:var(--card);
+           border-bottom:1px solid var(--line); padding:12px 16px; }
+  header h1 { margin:0; font-size:18px; }
+  main { max-width:680px; margin:0 auto; padding:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:14px; margin-bottom:14px; }
+  .card h2 { margin:0 0 10px; font-size:14px; text-transform:uppercase;
+             letter-spacing:.06em; color:var(--mut); }
+  label { display:block; font-size:13px; color:var(--mut); margin:8px 0 4px; }
+  input, textarea, select {
+    width:100%; background:#0e1018; color:var(--ink); border:1px solid var(--line);
+    border-radius:8px; padding:10px; font:inherit; }
+  textarea { resize:vertical; }
+  textarea.mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px; }
+  button { min-height:44px; padding:0 16px; border:0; border-radius:8px;
+           background:var(--accent); color:#fff; font:600 15px/1 inherit; cursor:pointer; }
+  button.sec { background:#2a2f40; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--ink); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .row > * { flex:0 0 auto; }
+  .grow { flex:1 1 auto; min-width:0; }
+  .meta-row { display:flex; gap:8px; margin-bottom:8px; }
+  .meta-row .k { flex:0 0 38%; }
+  .meta-row .v { flex:1 1 auto; }
+  .meta-row .x { flex:0 0 44px; background:#2a2f40; }
+  .preview-wrap { text-align:center; background:#0e1018; border:1px solid var(--line);
+                  border-radius:8px; padding:12px; }
+  .preview-wrap img { max-width:100%; background:#fff; }
+  #status { position:fixed; left:50%; bottom:18px; transform:translateX(-50%);
+            background:#000a; border:1px solid var(--line); padding:10px 16px;
+            border-radius:10px; opacity:0; transition:opacity .2s; pointer-events:none;
+            max-width:90vw; }
+  #status.show { opacity:1; }
+  #status.ok  { border-color:var(--good); }
+  #status.err { border-color:var(--bad); }
+  details summary { cursor:pointer; color:var(--mut); font-size:14px; }
+  .pill { display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px;
+          background:#26304a; color:#bcd; margin-left:8px; }
+</style>
+</head>
+<body>
+<header><h1>📸 Photobooth Editor <span id="activePill" class="pill"></span></h1></header>
+<main>
+
+  <div class="card">
+    <h2>Event</h2>
+    <div class="row">
+      <select id="eventSel" class="grow"></select>
+      <button class="sec" onclick="setActive()">Set active</button>
+      <button class="ghost" onclick="newEvent()">+ New</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Content</h2>
+    <div id="metaRows"></div>
+    <button class="ghost" onclick="addMetaRow('','')">+ Add field</button>
+  </div>
+
+  <div class="card">
+    <h2>Quips <span class="pill">one per line</span></h2>
+    <textarea id="quips" rows="6"></textarea>
+  </div>
+
+  <div class="card">
+    <h2>Logo</h2>
+    <div class="row">
+      <input type="file" id="logoFile" accept="image/*" class="grow">
+      <button class="sec" onclick="uploadLogo()">Upload</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Advanced — raw layout (template.yaml)</summary>
+      <textarea id="template" class="mono" rows="16" spellcheck="false"></textarea>
+    </details>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button onclick="save()">💾 Save</button>
+      <button class="sec" onclick="refreshPreview()">↻ Refresh preview</button>
+      <button class="ghost" onclick="testPrint()">🖨️ Test print</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Preview</h2>
+    <div class="preview-wrap"><img id="preview" alt="preview"></div>
+  </div>
+
+</main>
+<div id="status"></div>
+
+<script>
+let current = null;
+
+function toast(msg, kind) {
+  const s = document.getElementById('status');
+  s.textContent = msg; s.className = 'show ' + (kind || '');
+  clearTimeout(toast._t); toast._t = setTimeout(() => s.className = '', 2600);
+}
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const ct = r.headers.get('content-type') || '';
+  const body = ct.includes('json') ? await r.json() : null;
+  if (!r.ok) throw new Error((body && body.error) || r.statusText);
+  return body;
+}
+
+async function loadEvents() {
+  const d = await api('/api/events');
+  const sel = document.getElementById('eventSel');
+  sel.innerHTML = '';
+  d.events.forEach(n => {
+    const o = document.createElement('option');
+    o.value = o.textContent = n;
+    sel.appendChild(o);
+  });
+  document.getElementById('activePill').textContent = 'active: ' + d.active;
+  current = sel.value = d.events.includes(current) ? current : d.active;
+  await loadEvent(current);
+}
+async function loadEvent(name) {
+  current = name;
+  const d = await api('/api/event/' + encodeURIComponent(name));
+  const rows = document.getElementById('metaRows');
+  rows.innerHTML = '';
+  Object.entries(d.meta || {}).forEach(([k, v]) => addMetaRow(k, v));
+  document.getElementById('quips').value = d.quips || '';
+  document.getElementById('template').value = d.template || '';
+  refreshPreview();
+}
+function addMetaRow(k, v) {
+  const row = document.createElement('div');
+  row.className = 'meta-row';
+  row.innerHTML =
+    '<input class="k" placeholder="field" value="' + esc(k) + '">' +
+    '<input class="v" placeholder="value" value="' + esc(v) + '">' +
+    '<button class="x" title="remove">✕</button>';
+  row.querySelector('.x').onclick = () => row.remove();
+  document.getElementById('metaRows').appendChild(row);
+}
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+function collectMeta() {
+  const meta = {};
+  document.querySelectorAll('#metaRows .meta-row').forEach(r => {
+    const k = r.querySelector('.k').value.trim();
+    if (k) meta[k] = r.querySelector('.v').value;
+  });
+  return meta;
+}
+async function save() {
+  try {
+    await api('/api/event/' + encodeURIComponent(current), {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        meta: collectMeta(),
+        quips: document.getElementById('quips').value,
+        template: document.getElementById('template').value,
+      }),
+    });
+    toast('Saved', 'ok'); refreshPreview();
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function setActive() {
+  try {
+    const name = document.getElementById('eventSel').value;
+    await api('/api/active', {method:'POST', headers:{'Content-Type':'application/json'},
+                              body: JSON.stringify({event:name})});
+    document.getElementById('activePill').textContent = 'active: ' + name;
+    toast('Active event: ' + name, 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function newEvent() {
+  const name = prompt('New event name (letters, numbers, - or _):');
+  if (!name) return;
+  try {
+    await api('/api/event/new', {method:'POST', headers:{'Content-Type':'application/json'},
+                                 body: JSON.stringify({from: current, name: name.trim()})});
+    current = name.trim();
+    await loadEvents();
+    toast('Created ' + current + ' (copy of previous)', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function uploadLogo() {
+  const f = document.getElementById('logoFile').files[0];
+  if (!f) { toast('Pick an image first', 'err'); return; }
+  const fd = new FormData(); fd.append('file', f);
+  try {
+    await api('/api/event/' + encodeURIComponent(current) + '/logo', {method:'POST', body: fd});
+    toast('Logo uploaded', 'ok'); refreshPreview();
+  } catch (e) { toast(e.message, 'err'); }
+}
+function refreshPreview() {
+  document.getElementById('preview').src =
+    '/api/preview?event=' + encodeURIComponent(current) + '&t=' + Date.now();
+}
+async function testPrint() {
+  if (!confirm('Print a test receipt (placeholder photo) for "' + current + '"?')) return;
+  try {
+    await api('/api/print', {method:'POST', headers:{'Content-Type':'application/json'},
+                             body: JSON.stringify({event: current})});
+    toast('Sent to printer', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+document.getElementById('eventSel').addEventListener('change', e => loadEvent(e.target.value));
+loadEvents().catch(e => toast(e.message, 'err'));
+</script>
+</body>
+</html>

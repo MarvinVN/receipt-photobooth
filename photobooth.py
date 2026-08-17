@@ -1,84 +1,87 @@
-from datetime import datetime
-from pathlib import Path
+"""Photobooth main: capture a photo, compose the active event's receipt, print.
+
+Usage:
+  python3 photobooth.py            capture + compose + print
+  python3 photobooth.py --preview  compose to /tmp/last_receipt.png, no camera/printer
+  python3 photobooth.py --no-print  capture + compose to PNG, but don't print
+"""
+import argparse
 import time
+from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageFont
+from PIL import Image
 from escpos.printer import File
-from picamera2 import Picamera2
 
-PRINTER_DEVICE = "/dev/usb/lp0"
-PRINTER_WIDTH  = 576                       # 80mm @ 203 DPI
-FONT_PATH      = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-ASSETS         = Path.home() / "photobooth" / "assets"
+import renderer
+
+PRINTER_DEVICE  = "/dev/usb/lp0"
+FEED_BEFORE_CUT = 3                       # blank lines so the footer clears the cutter
+EVENTS_DIR      = Path.home() / "photobooth" / "events"
+
+
+def active_event_dir() -> Path:
+    pointer = EVENTS_DIR / "active.txt"
+    name = pointer.read_text(encoding="utf-8").strip() if pointer.exists() else "default"
+    d = EVENTS_DIR / name
+    return d if d.exists() else EVENTS_DIR / "default"
+
 
 def capture_photo() -> Image.Image:
+    from picamera2 import Picamera2
+    from libcamera import controls
     cam = Picamera2()
     cam.configure(cam.create_still_configuration(main={"size": (1920, 1440)}))
     cam.start()
-    time.sleep(2)                          # auto-exposure settle
+    time.sleep(2)                          # let auto-exposure settle
+    cam.set_controls({"AfMode": controls.AfModeEnum.Auto})
+    cam.autofocus_cycle()                  # focus on the subject; blocks until locked
     arr = cam.capture_array()
     cam.stop()
-    return Image.fromarray(arr).convert("RGB")
+    # camera is mounted upside-down in the enclosure, so rotate the frame 180
+    return Image.fromarray(arr).convert("RGB").rotate(180)
 
-def prep_photo_for_thermal(photo: Image.Image, width: int) -> Image.Image:
-    # crop to square, resize to printer width, boost contrast, dither to 1-bit
-    w, h = photo.size
-    side = min(w, h)
-    photo = photo.crop(((w - side) // 2, (h - side) // 2,
-                       (w + side) // 2, (h + side) // 2))
-    photo = photo.resize((width, width), Image.LANCZOS)
-    photo = ImageEnhance.Contrast(photo).enhance(1.4)
-    photo = ImageEnhance.Brightness(photo).enhance(1.1)
-    return photo.convert("L").convert("1", dither=Image.Dither.FLOYDSTEINBERG)
 
-def draw_centered_text(canvas: Image.Image, y: int, text: str, size: int) -> int:
-    draw = ImageDraw.Draw(canvas)
-    font = ImageFont.truetype(FONT_PATH, size)
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw = bbox[2] - bbox[0]
-    draw.text(((canvas.width - tw) // 2, y), text, font=font, fill=0)
-    return y + (bbox[3] - bbox[1]) + 10
-
-def build_receipt(photo: Image.Image) -> Image.Image:
-    logo_path = ASSETS / "logo.png"
-    logo = Image.open(logo_path).convert("1") if logo_path.exists() else None
-
-    # measure heights first so we know canvas height
-    logo_h = logo.height if logo else 0
-    photo_h = photo.height
-    canvas_h = logo_h + 30 + 60 + photo_h + 60 + 50 + 80   # rough; padding at bottom
-
-    canvas = Image.new("1", (PRINTER_WIDTH, canvas_h), 1)
-    y = 0
-    if logo:
-        canvas.paste(logo, ((PRINTER_WIDTH - logo.width) // 2, y))
-        y += logo_h + 20
-
-    y = draw_centered_text(canvas, y, datetime.now().strftime("%Y-%m-%d  %H:%M"), 28)
-    y += 10
-    canvas.paste(photo, (0, y))
-    y += photo_h + 20
-    y = draw_centered_text(canvas, y, "Thanks for visiting!", 36)
-
-    # trim trailing white space
-    return canvas.crop((0, 0, PRINTER_WIDTH, y + 20))
-
-def print_receipt(img: Image.Image):
+def print_image(img: Image.Image):
     p = File(PRINTER_DEVICE)
-    p.image(img)
-    p.cut()
+    try:
+        p.image(img)
+        p.ln(FEED_BEFORE_CUT)
+        p.cut()
+    finally:
+        p.close()          # release /dev/usb/lp0 so the next print can open it
+
+
+def run(preview=False, no_print=False):
+    event_dir = active_event_dir()
+    print(f"Event: {event_dir.name}")
+
+    photo = None
+    if not preview:
+        print("Capturing...")
+        photo = capture_photo()
+        photo.save("/tmp/last_capture.jpg")
+
+    print("Composing...")
+    receipt = renderer.compose(event_dir, photo)
+    receipt.save("/tmp/last_receipt.png")
+
+    if preview or no_print:
+        print("Saved -> /tmp/last_receipt.png (not printed)")
+    else:
+        print("Printing...")
+        print_image(receipt)
+        print("Done.")
+
 
 def main():
-    print("Capturing...")
-    photo = capture_photo()
-    photo.save("/tmp/last_capture.jpg")    # for debugging
-    print("Composing...")
-    receipt = prep_photo_for_thermal(photo, PRINTER_WIDTH)
-    final = build_receipt(receipt)
-    final.save("/tmp/last_receipt.png")    # for debugging
-    print("Printing...")
-    print_receipt(final)
-    print("Done.")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--preview", action="store_true",
+                    help="render to PNG using a placeholder photo; no camera or printer")
+    ap.add_argument("--no-print", action="store_true",
+                    help="capture and compose to PNG, but don't print")
+    args = ap.parse_args()
+    run(preview=args.preview, no_print=args.no_print)
+
 
 if __name__ == "__main__":
     main()

@@ -1,4 +1,4 @@
-# Per-event settings. Add any custom fields here and use them as {field} in text.
-event: "EVENT NAME"
-qr_url: "https://instagram.com/dofunwith_goodcompany"
-tagline: "scan to follow!"
+# Per-event content. Edited by the web editor.
+event: Drinks On Us
+qr_url: https://instagram.com/dofunwith_goodcompany
+tagline: scan to follow!
